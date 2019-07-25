@@ -2,19 +2,19 @@
 and exports the model as a graphdef protobuf
 """
 # MIT License
-# 
+#
 # Copyright (c) 2016 David Sandberg
-# 
+#
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -41,7 +41,7 @@ def main(args):
             # Load the model metagraph and checkpoint
             print('Model directory: %s' % args.model_dir)
             meta_file, ckpt_file = facenet.get_model_filenames(os.path.expanduser(args.model_dir))
-            
+
             print('Metagraph file: %s' % meta_file)
             print('Checkpoint file: %s' % ckpt_file)
 
@@ -50,18 +50,18 @@ def main(args):
             tf.get_default_session().run(tf.global_variables_initializer())
             tf.get_default_session().run(tf.local_variables_initializer())
             saver.restore(tf.get_default_session(), os.path.join(model_dir_exp, ckpt_file))
-            
+
             # Retrieve the protobuf graph definition and fix the batch norm nodes
             input_graph_def = sess.graph.as_graph_def()
-            
+
             # Freeze the graph def
-            output_graph_def = freeze_graph_def(sess, input_graph_def, 'embeddings,label_batch')
+            output_graph_def = freeze_graph_def(sess, input_graph_def, 'embeddings')
 
         # Serialize and dump the output graph to the filesystem
         with tf.gfile.GFile(args.output_file, 'wb') as f:
             f.write(output_graph_def.SerializeToString())
         print("%d ops in the final graph: %s" % (len(output_graph_def.node), args.output_file))
-        
+
 def freeze_graph_def(sess, input_graph_def, output_node_names):
     for node in input_graph_def.node:
         if node.op == 'RefSwitch':
@@ -75,13 +75,14 @@ def freeze_graph_def(sess, input_graph_def, output_node_names):
         elif node.op == 'AssignAdd':
             node.op = 'Add'
             if 'use_locking' in node.attr: del node.attr['use_locking']
-    
+
     # Get the list of important nodes
     whitelist_names = []
     for node in input_graph_def.node:
-        if (node.name.startswith('InceptionResnet') or node.name.startswith('embeddings') or 
+        if (node.name.startswith('InceptionResnet') or node.name.startswith('embeddings') or
                 node.name.startswith('image_batch') or node.name.startswith('label_batch') or
-                node.name.startswith('phase_train') or node.name.startswith('Logits')):
+                node.name.startswith('phase_train') or node.name.startswith('Logits') or node.name.startswith('input')
+                ):
             whitelist_names.append(node.name)
 
     # Replace all the variables in the graph with constants of the same values
@@ -89,13 +90,13 @@ def freeze_graph_def(sess, input_graph_def, output_node_names):
         sess, input_graph_def, output_node_names.split(","),
         variable_names_whitelist=whitelist_names)
     return output_graph_def
-  
+
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
-    
-    parser.add_argument('model_dir', type=str, 
+
+    parser.add_argument('model_dir', type=str,
         help='Directory containing the metagraph (.meta) file and the checkpoint (ckpt) file containing model parameters')
-    parser.add_argument('output_file', type=str, 
+    parser.add_argument('output_file', type=str,
         help='Filename for the exported graphdef protobuf (.pb)')
     return parser.parse_args(argv)
 
